@@ -3,12 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
-// Парочка структур, чтобы поймать ожидание кода
+// Structs for auth
 type Response struct {
 	Type               string             `json:"@type"`
 	AuthorizationState authorizationState `json:"authorization_state"`
@@ -19,9 +20,22 @@ type authorizationState struct {
 }
 
 func main() {
+	SetLogVerbosityLevel(1)
+	SetFilePath("./errors.txt")
+
+	// Get API_ID and API_HASH from env vars
+	apiId := os.Getenv("API_ID")
+	if apiId == "" {
+		log.Fatal("API_ID env variable not specified")
+	}
+	apiHash := os.Getenv("API_HASH")
+	if apiHash == "" {
+		log.Fatal("API_HASH env variable not specified")
+	}
+
 	client := NewClient()
 
-	// Обрабатываем Ctrl+C
+	// Handle Ctrl+C
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -30,72 +44,71 @@ func main() {
 		os.Exit(1)
 	}()
 
-	SetLogVerbosityLevel(1)
+	// Func for quick marshaling map into string
+	marshal := func(jsonQuery map[string]interface{}) string {
+		jsonBytes, _ := json.Marshal(jsonQuery)
+		return string(jsonBytes)
+	}
 
 	for {
-		// Получаем тут асинхронные ивенты после выполнения TdSend()
+		// Get all updates here
 		event := client.Receive(10)
 
-		// Декодируем полученный JSON для авторизации
+		// Decode event to Response struct for auth
 		var res Response
-		_ = json.Unmarshal([]byte(event), &res)
+		json.Unmarshal([]byte(event), &res)
 
-		// Если либа ждет номер или код -- ловим
+		// Main auth switch mechanism
 		switch res.AuthorizationState.Type {
 		case "authorizationStateWaitTdlibParameters":
-			// Отправляем api_id и api_hash
-			client.Send(`{
-  "@type": "setTdlibParameters",
-  "parameters": {
-    "@type": "tdlibParameters",
-    "use_message_database": true,
-    "api_id": 15504,
-    "api_hash": "1c7e91c33b0a9c1f4379a811f0826509",
-    "system_language_code": "en",
-    "device_model": "Server",
-    "system_version": "Unknown",
-    "application_version": "1.0",
-    "enable_storage_optimizer": true
-  }
-}`)
+			client.Send(marshal(map[string]interface{}{
+				"@type": "setTdlibParameters",
+				"parameters": map[string]interface{}{
+					"@type":                    "tdlibParameters",
+					"use_message_database":     true,
+					"api_id":                   apiId,
+					"api_hash":                 apiHash,
+					"system_language_code":     "en",
+					"device_model":             "Server",
+					"system_version":           "Unknown",
+					"application_version":      "1.0",
+					"enable_storage_optimizer": true,
+				},
+			}))
 		case "authorizationStateWaitEncryptionKey":
-			// Проверяем ключик
-			client.Send(`{
-  "@type": "checkDatabaseEncryptionKey"
-}`)
+			client.Send(marshal(map[string]interface{}{
+				"@type": "checkDatabaseEncryptionKey",
+			}))
 		case "authorizationStateWaitPhoneNumber":
-			// Устанавливаем номер
 			fmt.Print("Enter phone: ")
 			var number string
 			fmt.Scanln(&number)
 
-			client.Send(fmt.Sprintf(`{
-  "@type": "setAuthenticationPhoneNumber",
-  "phone_number": "%s"
-}`, number))
+			client.Send(marshal(map[string]interface{}{
+				"@type":        "setAuthenticationPhoneNumber",
+				"phone_number": number,
+			}))
 		case "authorizationStateWaitCode":
-			// Вводим код
 			fmt.Print("Enter code: ")
 			var code string
 			fmt.Scanln(&code)
 
-			client.Send(fmt.Sprintf(`{
-  "@type": "checkAuthenticationCode",
-  "code": "%s"
-}`, code))
+			client.Send(marshal(map[string]interface{}{
+				"@type": "checkAuthenticationCode",
+				"code":  code,
+			}))
 		case "authorizationStateWaitPassword":
-			// Вводим пароль, если есть
 			fmt.Print("Enter password: ")
 			var passwd string
 			fmt.Scanln(&passwd)
 
-			client.Send(fmt.Sprintf(`{
-  "@type": "checkAuthenticationCode",
-  "code": "%s"
-}`, passwd))
+			client.Send(marshal(map[string]interface{}{
+				"@type":    "checkAuthenticationPassword",
+				"password": passwd,
+			}))
 		}
 
-		// Выводим полученные JSON
+		// Show all events in json
 		fmt.Println(event)
 	}
 }

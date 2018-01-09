@@ -18,3 +18,5 @@ db.sqlite
 db.sqlite-shm
 db.sqlite-wal
 td.binlog
+
+errors.txt
