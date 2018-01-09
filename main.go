@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -99,9 +98,4 @@ func main() {
 		// Выводим полученные JSON
 		fmt.Println(event)
 	}
-
-	http.HandleFunc("/websocket", func(w http.ResponseWriter, r *http.Request) {
-
-	})
-	http.ListenAndServe(":3000", nil)
 }
