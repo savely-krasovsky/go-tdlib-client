@@ -11,34 +11,38 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 	"unsafe"
 )
 
+type Update = map[string]interface{}
+
 type Client struct {
-	Client    unsafe.Pointer
-	Updates   chan map[string]interface{}
-	Callbacks chan map[string]interface{}
+	Client  unsafe.Pointer
+	Updates chan Update
+	Waiters sync.Map
 }
 
 func NewClient() *Client {
 	client := Client{Client: C.td_json_client_create()}
-	updates := make(chan map[string]interface{}, 100)
-	callbacks := make(chan map[string]interface{}, 100)
+	client.Updates = make(chan map[string]interface{}, 100)
 
 	go func() {
 		for {
 			event := client.Receive(10)
 
-			var update map[string]interface{}
+			var update Update
 			json.Unmarshal([]byte(event), &update)
 
-			if updateExtra, hasExtra := update["@extra"]; hasExtra {
-				fmt.Println("sending into channel:", updateExtra)
-				callbacks <- update
+			if extra, hasExtra := update["@extra"].(string); hasExtra {
+				if waiter, found := client.Waiters.Load(extra); found {
+					waiter.(chan Update) <- update
+					close(waiter.(chan Update))
+				}
 			} else {
 				if _, ok := update["@type"]; ok {
-					updates <- update
+					client.Updates <- update
 				} else {
 					fmt.Println("update without @type field")
 				}
@@ -46,8 +50,6 @@ func NewClient() *Client {
 		}
 	}()
 
-	client.Updates = updates
-	client.Callbacks = callbacks
 	return &client
 }
 
@@ -105,27 +107,20 @@ func (c *Client) SendAndCatch(jsonQuery string) (map[string]interface{}, error) 
 	jsonWithoutExtra["@extra"] = randomString
 	jsonWithExtra, _ := json.Marshal(&jsonWithoutExtra)
 
+	waiter := make(chan Update, 1)
+	c.Waiters.Store(randomString, waiter)
+
 	// send it through already implemented method
 	c.Send(string(jsonWithExtra))
 
-	// wait callback or timeout
+	// wait response or timeout
 	select {
-	case callback := <-c.Callbacks:
-		// check @extra field again
-		if updateExtra, ok := callback["@extra"]; ok {
-			// if generated string previously equal to that we got - return it
-			if updateExtra == randomString {
-				fmt.Println("catched")
-				return callback, nil
-			} else {
-				fmt.Println("catched, but not equal")
-				return map[string]interface{}{}, errors.New("catched, but not equal")
-			}
-		} else {
-			return map[string]interface{}{}, errors.New("there is no @extra field")
-		}
+	case response := <-waiter:
+		fmt.Println("catched:", response)
+		return response, nil
 	case <-time.After(10 * time.Second):
 		fmt.Println("timeout")
-		return map[string]interface{}{}, errors.New("timeout")
+		c.Waiters.Delete(randomString)
+		return Update{}, errors.New("timeout")
 	}
 }
