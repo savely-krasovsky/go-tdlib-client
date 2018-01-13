@@ -43,7 +43,6 @@ func main() {
 	}
 
 	rand.Seed(time.Now().UnixNano())
-	client.InitUpdatesChan()
 
 	for update := range client.Updates {
 		// Show all updates in JSON

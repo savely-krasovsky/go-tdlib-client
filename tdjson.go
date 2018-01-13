@@ -22,10 +22,33 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	return &Client{
-		Client:    C.td_json_client_create(),
-		Callbacks: make(chan map[string]interface{}),
-	}
+	client := Client{Client: C.td_json_client_create()}
+	updates := make(chan map[string]interface{})
+	callbacks := make(chan map[string]interface{})
+
+	go func() {
+		for {
+			event := client.Receive(10)
+
+			var update map[string]interface{}
+			json.Unmarshal([]byte(event), &update)
+
+			if updateExtra, ok := update["@extra"].(string); ok {
+				fmt.Println("sending into channel:", updateExtra)
+				callbacks <- update
+			}
+
+			if _, ok := update["@type"].(string); ok {
+				updates <- update
+			} else {
+				fmt.Println("update without @type field")
+			}
+		}
+	}()
+
+	client.Updates = updates
+	client.Callbacks = callbacks
+	return &client
 }
 
 func (c *Client) Destroy() {
@@ -61,32 +84,6 @@ func SetFilePath(path string) {
 
 func SetLogVerbosityLevel(level int) {
 	C.td_set_log_verbosity_level(C.int(level))
-}
-
-func (c *Client) InitUpdatesChan() {
-	updatesChan := make(chan map[string]interface{})
-
-	go func() {
-		for {
-			event := c.Receive(10)
-
-			var update map[string]interface{}
-			json.Unmarshal([]byte(event), &update)
-
-			if updateExtra, ok := update["@extra"].(string); ok {
-				fmt.Println("sending into channel:", updateExtra)
-				c.Callbacks <- update
-			}
-
-			if _, ok := update["@type"].(string); ok {
-				updatesChan <- update
-			} else {
-				fmt.Println("update without @type field")
-			}
-		}
-	}()
-
-	c.Updates = updatesChan
 }
 
 func (c *Client) SendAndCatch(jsonQuery string) (map[string]interface{}, error) {
