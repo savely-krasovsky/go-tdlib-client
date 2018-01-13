@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -25,6 +24,7 @@ func main() {
 		log.Fatal("API_HASH env variable not specified")
 	}
 
+	// Create new instance of client
 	client := NewClient()
 
 	// Handle Ctrl+C
@@ -36,12 +36,7 @@ func main() {
 		os.Exit(1)
 	}()
 
-	// Func for quick marshaling map into string
-	marshal := func(jsonQuery Update) string {
-		jsonBytes, _ := json.Marshal(jsonQuery)
-		return string(jsonBytes)
-	}
-
+	// Seed rand with time
 	rand.Seed(time.Now().UnixNano())
 
 	for update := range client.Updates {
@@ -51,74 +46,11 @@ func main() {
 		// Authorization block
 		if update["@type"].(string) == "updateAuthorizationState" {
 			if authorizationState, ok := update["authorization_state"].(Update)["@type"].(string); ok {
-				switch authorizationState {
-				case "authorizationStateWaitTdlibParameters":
-					res, err := client.SendAndCatch(marshal(Update{
-						"@type": "setTdlibParameters",
-						"parameters": Update{
-							"@type":                    "tdlibParameters",
-							"use_message_database":     true,
-							"api_id":                   apiId,
-							"api_hash":                 apiHash,
-							"system_language_code":     "en",
-							"device_model":             "Server",
-							"system_version":           "Unknown",
-							"application_version":      "1.0",
-							"enable_storage_optimizer": true,
-						},
-					}))
-					if err != nil {
-						log.Panic(err)
-					}
-					log.Println(res)
-				case "authorizationStateWaitEncryptionKey":
-					res, err := client.SendAndCatch(marshal(Update{
-						"@type": "checkDatabaseEncryptionKey",
-					}))
-					if err != nil {
-						log.Panic(err)
-					}
-					log.Println(res)
-				case "authorizationStateWaitPhoneNumber":
-					fmt.Print("Enter phone: ")
-					var number string
-					fmt.Scanln(&number)
-
-					res, err := client.SendAndCatch(marshal(Update{
-						"@type":        "setAuthenticationPhoneNumber",
-						"phone_number": number,
-					}))
-					if err != nil {
-						log.Panic(err)
-					}
-					log.Println(res)
-				case "authorizationStateWaitCode":
-					fmt.Print("Enter code: ")
-					var code string
-					fmt.Scanln(&code)
-
-					res, err := client.SendAndCatch(marshal(Update{
-						"@type": "checkAuthenticationCode",
-						"code":  code,
-					}))
-					if err != nil {
-						log.Panic(err)
-					}
-					log.Println(res)
-				case "authorizationStateWaitPassword":
-					fmt.Print("Enter password: ")
-					var passwd string
-					fmt.Scanln(&passwd)
-
-					res, err := client.SendAndCatch(marshal(Update{
-						"@type":    "checkAuthenticationPassword",
-						"password": passwd,
-					}))
-					if err != nil {
-						log.Panic(err)
-					}
-					log.Println(res)
+				res, err := client.Auth(authorizationState, apiId, apiHash)
+				if err != nil {
+					log.Println(err)
 				}
+				log.Println(res)
 			}
 		}
 	}
