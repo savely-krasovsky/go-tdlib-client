@@ -51,56 +51,54 @@ func main() {
 		// Authorization block
 		if update["@type"].(string) == "updateAuthorizationState" {
 			if authorizationState, ok := update["authorization_state"].(map[string]interface{})["@type"].(string); ok {
-				go func() {
-					switch authorizationState {
-					case "authorizationStateWaitTdlibParameters":
-						client.SendAndCatch(marshal(map[string]interface{}{
-							"@type": "setTdlibParameters",
-							"parameters": map[string]interface{}{
-								"@type":                    "tdlibParameters",
-								"use_message_database":     true,
-								"api_id":                   apiId,
-								"api_hash":                 apiHash,
-								"system_language_code":     "en",
-								"device_model":             "Server",
-								"system_version":           "Unknown",
-								"application_version":      "1.0",
-								"enable_storage_optimizer": true,
-							},
-						}))
-					case "authorizationStateWaitEncryptionKey":
-						client.SendAndCatch(marshal(map[string]interface{}{
-							"@type": "checkDatabaseEncryptionKey",
-						}))
-					case "authorizationStateWaitPhoneNumber":
-						fmt.Print("Enter phone: ")
-						var number string
-						fmt.Scanln(&number)
+				switch authorizationState {
+				case "authorizationStateWaitTdlibParameters":
+					client.SendAndCatch(marshal(map[string]interface{}{
+						"@type": "setTdlibParameters",
+						"parameters": map[string]interface{}{
+							"@type":                    "tdlibParameters",
+							"use_message_database":     true,
+							"api_id":                   apiId,
+							"api_hash":                 apiHash,
+							"system_language_code":     "en",
+							"device_model":             "Server",
+							"system_version":           "Unknown",
+							"application_version":      "1.0",
+							"enable_storage_optimizer": true,
+						},
+					}))
+				case "authorizationStateWaitEncryptionKey":
+					client.SendAndCatch(marshal(map[string]interface{}{
+						"@type": "checkDatabaseEncryptionKey",
+					}))
+				case "authorizationStateWaitPhoneNumber":
+					fmt.Print("Enter phone: ")
+					var number string
+					fmt.Scanln(&number)
 
-						client.SendAndCatch(marshal(map[string]interface{}{
-							"@type":        "setAuthenticationPhoneNumber",
-							"phone_number": number,
-						}))
-					case "authorizationStateWaitCode":
-						fmt.Print("Enter code: ")
-						var code string
-						fmt.Scanln(&code)
+					client.SendAndCatch(marshal(map[string]interface{}{
+						"@type":        "setAuthenticationPhoneNumber",
+						"phone_number": number,
+					}))
+				case "authorizationStateWaitCode":
+					fmt.Print("Enter code: ")
+					var code string
+					fmt.Scanln(&code)
 
-						client.SendAndCatch(marshal(map[string]interface{}{
-							"@type": "checkAuthenticationCode",
-							"code":  code,
-						}))
-					case "authorizationStateWaitPassword":
-						fmt.Print("Enter password: ")
-						var passwd string
-						fmt.Scanln(&passwd)
+					client.SendAndCatch(marshal(map[string]interface{}{
+						"@type": "checkAuthenticationCode",
+						"code":  code,
+					}))
+				case "authorizationStateWaitPassword":
+					fmt.Print("Enter password: ")
+					var passwd string
+					fmt.Scanln(&passwd)
 
-						client.SendAndCatch(marshal(map[string]interface{}{
-							"@type":    "checkAuthenticationPassword",
-							"password": passwd,
-						}))
-					}
-				}()
+					client.SendAndCatch(marshal(map[string]interface{}{
+						"@type":    "checkAuthenticationPassword",
+						"password": passwd,
+					}))
+				}
 			}
 		}
 	}

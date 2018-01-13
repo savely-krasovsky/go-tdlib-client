@@ -23,8 +23,8 @@ type Client struct {
 
 func NewClient() *Client {
 	client := Client{Client: C.td_json_client_create()}
-	updates := make(chan map[string]interface{})
-	callbacks := make(chan map[string]interface{})
+	updates := make(chan map[string]interface{}, 100)
+	callbacks := make(chan map[string]interface{}, 100)
 
 	go func() {
 		for {
@@ -33,15 +33,15 @@ func NewClient() *Client {
 			var update map[string]interface{}
 			json.Unmarshal([]byte(event), &update)
 
-			if updateExtra, ok := update["@extra"].(string); ok {
+			if updateExtra, hasExtra := update["@extra"]; hasExtra {
 				fmt.Println("sending into channel:", updateExtra)
 				callbacks <- update
-			}
-
-			if _, ok := update["@type"].(string); ok {
-				updates <- update
 			} else {
-				fmt.Println("update without @type field")
+				if _, ok := update["@type"]; ok {
+					updates <- update
+				} else {
+					fmt.Println("update without @type field")
+				}
 			}
 		}
 	}()
@@ -87,28 +87,33 @@ func SetLogVerbosityLevel(level int) {
 }
 
 func (c *Client) SendAndCatch(jsonQuery string) (map[string]interface{}, error) {
+	// unmarshal JSON into map, we don't have @extra field, if user don't set it
 	var jsonWithoutExtra map[string]interface{}
 	json.Unmarshal([]byte(jsonQuery), &jsonWithoutExtra)
 
+	// letters for generating random string
 	letterBytes := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-	//rand.Seed(time.Now().UnixNano())
+	// generate random string for @extra field
 	b := make([]byte, 32)
 	for i := range b {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	randomString := string(b)
 
+	// marshal new json with @extra field
 	jsonWithoutExtra["@extra"] = randomString
 	jsonWithExtra, _ := json.Marshal(&jsonWithoutExtra)
 
+	// send it through already implemented method
 	c.Send(string(jsonWithExtra))
 
-	fmt.Printf("callbacks: %+v\n", c.Callbacks)
-
+	// wait callback or timeout
 	select {
 	case callback := <-c.Callbacks:
-		if updateExtra, ok := callback["@extra"].(string); ok {
+		// check @extra field again
+		if updateExtra, ok := callback["@extra"]; ok {
+			// if generated string previously equal to that we got - return it
 			if updateExtra == randomString {
 				fmt.Println("catched")
 				return callback, nil
