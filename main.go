@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/L11R/go-tdjson"
 	"log"
 	"math/rand"
 	"os"
@@ -11,8 +12,8 @@ import (
 )
 
 func main() {
-	SetLogVerbosityLevel(1)
-	//SetFilePath("./errors.txt")
+	tdjson.SetLogVerbosityLevel(1)
+	tdjson.SetFilePath("./errors.txt")
 
 	// Get API_ID and API_HASH from env vars
 	apiId := os.Getenv("API_ID")
@@ -25,7 +26,7 @@ func main() {
 	}
 
 	// Create new instance of client
-	client := NewClient()
+	client := tdjson.NewClient()
 
 	// Handle Ctrl+C
 	ch := make(chan os.Signal, 2)
@@ -45,7 +46,7 @@ func main() {
 
 		// Authorization block
 		if update["@type"].(string) == "updateAuthorizationState" {
-			if authorizationState, ok := update["authorization_state"].(Update)["@type"].(string); ok {
+			if authorizationState, ok := update["authorization_state"].(tdjson.Update)["@type"].(string); ok {
 				res, err := client.Auth(authorizationState, apiId, apiHash)
 				if err != nil {
 					log.Println(err)
