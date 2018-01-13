@@ -37,7 +37,7 @@ func main() {
 	}()
 
 	// Func for quick marshaling map into string
-	marshal := func(jsonQuery map[string]interface{}) string {
+	marshal := func(jsonQuery Update) string {
 		jsonBytes, _ := json.Marshal(jsonQuery)
 		return string(jsonBytes)
 	}
@@ -50,12 +50,12 @@ func main() {
 
 		// Authorization block
 		if update["@type"].(string) == "updateAuthorizationState" {
-			if authorizationState, ok := update["authorization_state"].(map[string]interface{})["@type"].(string); ok {
+			if authorizationState, ok := update["authorization_state"].(Update)["@type"].(string); ok {
 				switch authorizationState {
 				case "authorizationStateWaitTdlibParameters":
-					client.SendAndCatch(marshal(map[string]interface{}{
+					res, err := client.SendAndCatch(marshal(Update{
 						"@type": "setTdlibParameters",
-						"parameters": map[string]interface{}{
+						"parameters": Update{
 							"@type":                    "tdlibParameters",
 							"use_message_database":     true,
 							"api_id":                   apiId,
@@ -67,37 +67,57 @@ func main() {
 							"enable_storage_optimizer": true,
 						},
 					}))
+					if err != nil {
+						log.Panic(err)
+					}
+					log.Println(res)
 				case "authorizationStateWaitEncryptionKey":
-					client.SendAndCatch(marshal(map[string]interface{}{
+					res, err := client.SendAndCatch(marshal(Update{
 						"@type": "checkDatabaseEncryptionKey",
 					}))
+					if err != nil {
+						log.Panic(err)
+					}
+					log.Println(res)
 				case "authorizationStateWaitPhoneNumber":
 					fmt.Print("Enter phone: ")
 					var number string
 					fmt.Scanln(&number)
 
-					client.SendAndCatch(marshal(map[string]interface{}{
+					res, err := client.SendAndCatch(marshal(Update{
 						"@type":        "setAuthenticationPhoneNumber",
 						"phone_number": number,
 					}))
+					if err != nil {
+						log.Panic(err)
+					}
+					log.Println(res)
 				case "authorizationStateWaitCode":
 					fmt.Print("Enter code: ")
 					var code string
 					fmt.Scanln(&code)
 
-					client.SendAndCatch(marshal(map[string]interface{}{
+					res, err := client.SendAndCatch(marshal(Update{
 						"@type": "checkAuthenticationCode",
 						"code":  code,
 					}))
+					if err != nil {
+						log.Panic(err)
+					}
+					log.Println(res)
 				case "authorizationStateWaitPassword":
 					fmt.Print("Enter password: ")
 					var passwd string
 					fmt.Scanln(&passwd)
 
-					client.SendAndCatch(marshal(map[string]interface{}{
+					res, err := client.SendAndCatch(marshal(Update{
 						"@type":    "checkAuthenticationPassword",
 						"password": passwd,
 					}))
+					if err != nil {
+						log.Panic(err)
+					}
+					log.Println(res)
 				}
 			}
 		}

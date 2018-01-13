@@ -26,7 +26,7 @@ type Client struct {
 
 func NewClient() *Client {
 	client := Client{Client: C.td_json_client_create()}
-	client.Updates = make(chan map[string]interface{}, 100)
+	client.Updates = make(chan Update, 100)
 
 	go func() {
 		for {
@@ -35,13 +35,20 @@ func NewClient() *Client {
 			var update Update
 			json.Unmarshal([]byte(event), &update)
 
+			// does new update has @extra field?
 			if extra, hasExtra := update["@extra"].(string); hasExtra {
+				// trying to load update with this salt
 				if waiter, found := client.Waiters.Load(extra); found {
+					// found? send it to waiter channel
 					waiter.(chan Update) <- update
+
+					// trying to prevent memory leak
 					close(waiter.(chan Update))
 				}
 			} else {
-				if _, ok := update["@type"]; ok {
+				// does new updates has @type field?
+				if _, hasType := update["@type"]; hasType {
+					// if yes, send it in main channel
 					client.Updates <- update
 				} else {
 					fmt.Println("update without @type field")
@@ -88,9 +95,9 @@ func SetLogVerbosityLevel(level int) {
 	C.td_set_log_verbosity_level(C.int(level))
 }
 
-func (c *Client) SendAndCatch(jsonQuery string) (map[string]interface{}, error) {
+func (c *Client) SendAndCatch(jsonQuery string) (Update, error) {
 	// unmarshal JSON into map, we don't have @extra field, if user don't set it
-	var jsonWithoutExtra map[string]interface{}
+	var jsonWithoutExtra Update
 	json.Unmarshal([]byte(jsonQuery), &jsonWithoutExtra)
 
 	// letters for generating random string
@@ -107,19 +114,19 @@ func (c *Client) SendAndCatch(jsonQuery string) (map[string]interface{}, error) 
 	jsonWithoutExtra["@extra"] = randomString
 	jsonWithExtra, _ := json.Marshal(&jsonWithoutExtra)
 
+	// create waiter chan and save it in Waiters
 	waiter := make(chan Update, 1)
 	c.Waiters.Store(randomString, waiter)
 
 	// send it through already implemented method
 	c.Send(string(jsonWithExtra))
 
-	// wait response or timeout
 	select {
+	// wait response from main loop in NewClient()
 	case response := <-waiter:
-		fmt.Println("catched:", response)
 		return response, nil
+	// or timeout
 	case <-time.After(10 * time.Second):
-		fmt.Println("timeout")
 		c.Waiters.Delete(randomString)
 		return Update{}, errors.New("timeout")
 	}
