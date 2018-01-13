@@ -4,24 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
-
-// Structs for auth
-type Response struct {
-	Type               string             `json:"@type"`
-	AuthorizationState authorizationState `json:"authorization_state"`
-}
-
-type authorizationState struct {
-	Type string `json:"@type"`
-}
 
 func main() {
 	SetLogVerbosityLevel(1)
-	SetFilePath("./errors.txt")
+	//SetFilePath("./errors.txt")
 
 	// Get API_ID and API_HASH from env vars
 	apiId := os.Getenv("API_ID")
@@ -36,10 +28,10 @@ func main() {
 	client := NewClient()
 
 	// Handle Ctrl+C
-	c := make(chan os.Signal, 2)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	ch := make(chan os.Signal, 2)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-c
+		<-ch
 		client.Destroy()
 		os.Exit(1)
 	}()
@@ -50,65 +42,67 @@ func main() {
 		return string(jsonBytes)
 	}
 
-	for {
-		// Get all updates here
-		event := client.Receive(10)
+	rand.Seed(time.Now().UnixNano())
+	client.InitUpdatesChan()
 
-		// Decode event to Response struct for auth
-		var res Response
-		json.Unmarshal([]byte(event), &res)
+	for update := range client.Updates {
+		// Show all updates in JSON
+		fmt.Println(update)
 
-		// Main auth switch mechanism
-		switch res.AuthorizationState.Type {
-		case "authorizationStateWaitTdlibParameters":
-			client.Send(marshal(map[string]interface{}{
-				"@type": "setTdlibParameters",
-				"parameters": map[string]interface{}{
-					"@type":                    "tdlibParameters",
-					"use_message_database":     true,
-					"api_id":                   apiId,
-					"api_hash":                 apiHash,
-					"system_language_code":     "en",
-					"device_model":             "Server",
-					"system_version":           "Unknown",
-					"application_version":      "1.0",
-					"enable_storage_optimizer": true,
-				},
-			}))
-		case "authorizationStateWaitEncryptionKey":
-			client.Send(marshal(map[string]interface{}{
-				"@type": "checkDatabaseEncryptionKey",
-			}))
-		case "authorizationStateWaitPhoneNumber":
-			fmt.Print("Enter phone: ")
-			var number string
-			fmt.Scanln(&number)
+		// Authorization block
+		if update["@type"].(string) == "updateAuthorizationState" {
+			if authorizationState, ok := update["authorization_state"].(map[string]interface{})["@type"].(string); ok {
+				go func() {
+					switch authorizationState {
+					case "authorizationStateWaitTdlibParameters":
+						client.SendAndCatch(marshal(map[string]interface{}{
+							"@type": "setTdlibParameters",
+							"parameters": map[string]interface{}{
+								"@type":                    "tdlibParameters",
+								"use_message_database":     true,
+								"api_id":                   apiId,
+								"api_hash":                 apiHash,
+								"system_language_code":     "en",
+								"device_model":             "Server",
+								"system_version":           "Unknown",
+								"application_version":      "1.0",
+								"enable_storage_optimizer": true,
+							},
+						}))
+					case "authorizationStateWaitEncryptionKey":
+						client.SendAndCatch(marshal(map[string]interface{}{
+							"@type": "checkDatabaseEncryptionKey",
+						}))
+					case "authorizationStateWaitPhoneNumber":
+						fmt.Print("Enter phone: ")
+						var number string
+						fmt.Scanln(&number)
 
-			client.Send(marshal(map[string]interface{}{
-				"@type":        "setAuthenticationPhoneNumber",
-				"phone_number": number,
-			}))
-		case "authorizationStateWaitCode":
-			fmt.Print("Enter code: ")
-			var code string
-			fmt.Scanln(&code)
+						client.SendAndCatch(marshal(map[string]interface{}{
+							"@type":        "setAuthenticationPhoneNumber",
+							"phone_number": number,
+						}))
+					case "authorizationStateWaitCode":
+						fmt.Print("Enter code: ")
+						var code string
+						fmt.Scanln(&code)
 
-			client.Send(marshal(map[string]interface{}{
-				"@type": "checkAuthenticationCode",
-				"code":  code,
-			}))
-		case "authorizationStateWaitPassword":
-			fmt.Print("Enter password: ")
-			var passwd string
-			fmt.Scanln(&passwd)
+						client.SendAndCatch(marshal(map[string]interface{}{
+							"@type": "checkAuthenticationCode",
+							"code":  code,
+						}))
+					case "authorizationStateWaitPassword":
+						fmt.Print("Enter password: ")
+						var passwd string
+						fmt.Scanln(&passwd)
 
-			client.Send(marshal(map[string]interface{}{
-				"@type":    "checkAuthenticationPassword",
-				"password": passwd,
-			}))
+						client.SendAndCatch(marshal(map[string]interface{}{
+							"@type":    "checkAuthenticationPassword",
+							"password": passwd,
+						}))
+					}
+				}()
+			}
 		}
-
-		// Show all events in json
-		fmt.Println(event)
 	}
 }

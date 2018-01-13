@@ -7,23 +7,49 @@ package main
 import "C"
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math/rand"
+	"time"
 	"unsafe"
 )
 
-// Client is an instance of tdlib's JSON client.
 type Client struct {
-	client unsafe.Pointer
+	Client    unsafe.Pointer
+	Updates   chan map[string]interface{}
+	Callbacks chan map[string]interface{}
 }
 
-// NewClient creates a new tdlib JSON client.
 func NewClient() *Client {
 	return &Client{
-		client: C.td_json_client_create(),
+		Client:    C.td_json_client_create(),
+		Callbacks: make(chan map[string]interface{}),
 	}
 }
 
-func SetLogVerbosityLevel(level int) {
-	C.td_set_log_verbosity_level(C.int(level))
+func (c *Client) Destroy() {
+	C.td_json_client_destroy(c.Client)
+}
+
+func (c *Client) Send(jsonQuery string) {
+	query := C.CString(jsonQuery)
+	defer C.free(unsafe.Pointer(query))
+
+	C.td_json_client_send(c.Client, query)
+}
+
+func (c *Client) Receive(timeout float64) string {
+	result := C.td_json_client_receive(c.Client, C.double(timeout))
+	return C.GoString(result)
+}
+
+func (c *Client) Execute(jsonQuery string) string {
+	query := C.CString(jsonQuery)
+	defer C.free(unsafe.Pointer(query))
+
+	result := C.td_json_client_execute(c.Client, query)
+	return C.GoString(result)
 }
 
 func SetFilePath(path string) {
@@ -33,26 +59,71 @@ func SetFilePath(path string) {
 	C.td_set_log_file_path(query)
 }
 
-func (c *Client) Send(jsonQuery string) {
-	query := C.CString(jsonQuery)
-	defer C.free(unsafe.Pointer(query))
-
-	C.td_json_client_send(c.client, query)
+func SetLogVerbosityLevel(level int) {
+	C.td_set_log_verbosity_level(C.int(level))
 }
 
-func (c *Client) Receive(timeout float64) string {
-	result := C.td_json_client_receive(c.client, C.double(timeout))
-	return C.GoString(result)
+func (c *Client) InitUpdatesChan() {
+	updatesChan := make(chan map[string]interface{})
+
+	go func() {
+		for {
+			event := c.Receive(10)
+
+			var update map[string]interface{}
+			json.Unmarshal([]byte(event), &update)
+
+			if updateExtra, ok := update["@extra"].(string); ok {
+				fmt.Println("sending into channel:", updateExtra)
+				c.Callbacks <- update
+			}
+
+			if _, ok := update["@type"].(string); ok {
+				updatesChan <- update
+			} else {
+				fmt.Println("update without @type field")
+			}
+		}
+	}()
+
+	c.Updates = updatesChan
 }
 
-func (c *Client) Execute(jsonQuery string) string {
-	query := C.CString(jsonQuery)
-	defer C.free(unsafe.Pointer(query))
+func (c *Client) SendAndCatch(jsonQuery string) (map[string]interface{}, error) {
+	var jsonWithoutExtra map[string]interface{}
+	json.Unmarshal([]byte(jsonQuery), &jsonWithoutExtra)
 
-	result := C.td_json_client_execute(c.client, query)
-	return C.GoString(result)
-}
+	letterBytes := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-func (c *Client) Destroy() {
-	C.td_json_client_destroy(c.client)
+	//rand.Seed(time.Now().UnixNano())
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	randomString := string(b)
+
+	jsonWithoutExtra["@extra"] = randomString
+	jsonWithExtra, _ := json.Marshal(&jsonWithoutExtra)
+
+	c.Send(string(jsonWithExtra))
+
+	fmt.Printf("callbacks: %+v\n", c.Callbacks)
+
+	select {
+	case callback := <-c.Callbacks:
+		if updateExtra, ok := callback["@extra"].(string); ok {
+			if updateExtra == randomString {
+				fmt.Println("catched")
+				return callback, nil
+			} else {
+				fmt.Println("catched, but not equal")
+				return map[string]interface{}{}, errors.New("catched, but not equal")
+			}
+		} else {
+			return map[string]interface{}{}, errors.New("there is no @extra field")
+		}
+	case <-time.After(10 * time.Second):
+		fmt.Println("timeout")
+		return map[string]interface{}{}, errors.New("timeout")
+	}
 }
