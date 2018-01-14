@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"github.com/L11R/go-tdjson"
 	"log"
-	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
 func main() {
@@ -36,9 +34,6 @@ func main() {
 		client.Destroy()
 		os.Exit(1)
 	}()
-
-	// Seed rand with time
-	rand.Seed(time.Now().UnixNano())
 
 	for update := range client.Updates {
 		// Show all updates in JSON
